@@ -4,8 +4,9 @@
 publishes. The SPF record is among the six omitted, so a receiver using that
 resolver sees **no SPF policy** for the domain.
 
-The same query to `8.8.8.8` and `9.9.9.9`, and to all eight of the domain's
-authoritative servers, returns the complete set every time.
+The same query to `8.8.8.8` and `9.9.9.9`, to all eight of the domain's
+authoritative servers, and to Cloudflare's own `dfw13` node in Dallas, returns
+the complete set every time. The nodes serving the short answer are in Sydney.
 
 **Live, continuously sampling:** <https://zoho-cloudflare-prod.mck.la>
 
@@ -49,20 +50,34 @@ served the identical complete answer in all 20 between them.
 An earlier 20-sample run from a different host on the same network gave 15 of
 20. The live page carries the current figure.
 
-### More than one node, and one node giving both answers
+### It is node-local, and it is not one machine
 
 From `id.server` (CHAOS TXT):
 
-| node | samples | missing SPF |
-| --- | --- | --- |
-| syd01 | 4 | 4 |
-| syd06 | 1 | 1 |
-| syd07 | 3 | **2** |
-| syd08 | 3 | 3 |
+| node | location | samples | missing SPF |
+| --- | --- | --- | --- |
+| syd01 | Sydney | 4 | 4 |
+| syd06 | Sydney | 1 | 1 |
+| syd07 | Sydney | 3 | **2** |
+| syd08 | Sydney | 3 | 3 |
+| **dfw13** | **Dallas** | **8** | **0** |
 
-Four nodes have shown the behaviour. **`syd07` served both a complete and an
-incomplete answer**, which is the most specific thing here: it is not one bad
-machine, and it is not a single stale cache entry that will simply expire.
+Two findings sit in that table.
+
+**Four Sydney nodes serve the incomplete answer, and `syd07` served both a
+complete and an incomplete one.** So it is neither a single bad machine nor one
+stale cache entry that will simply expire.
+
+**Dallas is unaffected.** A GitHub Actions runner in Azure `dfw13` got the
+complete 25-record RRset in 8 of 8 samples, on all three resolvers, in the same
+run that Sydney was failing. The
+[workflow](.github/workflows/probe.yml) repeats this every two hours and commits
+the output to [`results/`](results/), so this half of the evidence is public,
+timestamped, and independent of my network.
+
+That narrows it considerably: this is not "Cloudflare returns the wrong answer",
+it is a set of nodes in one region disagreeing with the rest of the anycast
+network about the contents of one RRset.
 
 ### The six records that go missing
 
