@@ -85,14 +85,21 @@ def edns_compliance(domain: str, bufsize: int = EDNS_BUFSIZE) -> int:
 
     RFC 6891 s6.2.5: a responder whose answer will not fit the requester's
     advertised payload size MUST truncate and set TC, so the requester knows to
-    retry over TCP. A responder that instead sends the whole thing leaves the
-    requester holding an oversized datagram, and what happens next is up to the
-    requester.
+    retry over TCP. A responder that sends the whole thing anyway leaves the
+    requester holding an oversized datagram.
 
-    This is the check that would have found the cause of the zoho.com behaviour
-    on day one, and the one that was missed: the earlier testing queried a
-    single nameserver of eight, happened to pick a compliant one, and concluded
-    the whole set was fine.
+    Each nameserver gets two queries. A small SOA first, which fits anywhere and
+    establishes whether the server is reachable at all, then the TXT query that
+    is actually under test. Without the control, a timeout is ambiguous: it
+    could mean the server is down, or it could mean the oversized answer was
+    dropped somewhere in the path. Those deserve different words, and from a
+    GitHub Actions runner the second happens routinely -- the 2176-byte response
+    never arrives, which is exactly the outcome setting TC would have prevented.
+
+    This is the check that identifies the cause rather than the symptom, and it
+    is the one the original investigation got wrong: it queried a single
+    nameserver of eight, happened to pick a compliant one, and concluded the
+    whole set was fine.
     """
     print(f"EDNS compliance for {domain}, advertising {bufsize} bytes")
     print("RFC 6891 6.2.5: too big for the advertised buffer MUST mean TC=1")
@@ -105,21 +112,41 @@ def edns_compliance(domain: str, bufsize: int = EDNS_BUFSIZE) -> int:
         return 2
 
     print(f"{'nameserver':<26} {'proto':<6} {'TC':<6} {'bytes':>6}   verdict")
-    offenders = []
+    offenders, unreachable = [], []
     for name in ns_names:
         for rdtype, proto in (("A", "IPv4"), ("AAAA", "IPv6")):
             try:
                 addr = dns.resolver.resolve(name, rdtype)[0].address
             except Exception:
                 continue
+
+            # Control: small answer, fits any buffer, proves reachability.
+            reachable = True
+            try:
+                cq = dns.message.make_query(domain, "SOA", use_edns=0, payload=bufsize)
+                dns.query.udp(cq, addr, timeout=8)
+            except Exception:
+                reachable = False
+
+            if not reachable:
+                print(f"{name:<26} {proto:<6} {'-':<6} {'-':>6}   "
+                      f"not tested: unreachable from this host")
+                unreachable.append(f"{name} ({proto})")
+                continue
+
             try:
                 q = dns.message.make_query(domain, "TXT", use_edns=0, payload=bufsize)
-                r = dns.query.udp(q, addr, timeout=12)
+                r = dns.query.udp(q, addr, timeout=8)
                 tc = bool(r.flags & dns.flags.TC)
                 size = len(r.to_wire())
-            except Exception as exc:
-                print(f"{name:<26} {proto:<6} {'-':<6} {'-':>6}   ERROR {type(exc).__name__}")
+            except Exception:
+                # Answers the control but not this. The oversized reply was
+                # lost in the path, which is the failure TC exists to avoid.
+                print(f"{name:<26} {proto:<6} {'no':<6} {'lost':>6}   "
+                      f"*** OVERSIZED REPLY NEVER ARRIVED ***")
+                offenders.append(f"{name} ({proto})")
                 continue
+
             if tc:
                 verdict = "correct: TC=1"
             elif size > bufsize:
@@ -130,17 +157,23 @@ def edns_compliance(domain: str, bufsize: int = EDNS_BUFSIZE) -> int:
             print(f"{name:<26} {proto:<6} {str(tc):<6} {size:>6}   {verdict}")
 
     print()
+    if unreachable:
+        print("Not tested (no route or no answer to a small control query from")
+        print("this host, which says nothing about the nameserver):")
+        for u in unreachable:
+            print(f"  - {u}")
+        print()
     if offenders:
         print("Nameservers ignoring the advertised buffer:")
         for o in offenders:
             print(f"  - {o}")
         print()
-        print("A recursive resolver that advertised a smaller buffer than the answer")
-        print("needs will receive an oversized datagram from these. What it does with")
-        print("it is its own choice, and at least one truncates it, which silently")
-        print("drops records from the answer it caches and serves.")
+        print("A resolver advertising a smaller buffer than the answer needs will")
+        print("either receive an oversized datagram from these, or not receive the")
+        print("answer at all. Cloudflare's truncates it, which silently drops")
+        print("records from what it then caches and serves.")
         return 1
-    print("All nameservers respected the advertised buffer.")
+    print("All reachable nameservers respected the advertised buffer.")
     return 0
 
 
