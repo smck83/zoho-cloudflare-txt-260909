@@ -105,9 +105,23 @@ protocol-specific.
 
 ## The fix
 
-For Zoho: `ns11`, `ns21`, `ns31` and `ns41.zns-53.com|net` must set `TC` when a
-response exceeds the requester's advertised EDNS payload size, over both IPv4
-and IPv6. Until then, any resolver advertising a buffer smaller than 2176 bytes
+For Zoho, these four must set `TC` when a response exceeds the requester's
+advertised EDNS payload size, over **both IPv4 and IPv6**:
+
+```
+ns11.zns-53.com
+ns21.zns-53.net
+ns31.zns-53.com
+ns41.zns-53.net
+```
+
+> Two notes for anyone reading the [Cloudflare thread][thread] alongside this.
+> It lists all four as `.com`; `ns21.zns-53.com` and `ns41.zns-53.com` are
+> NXDOMAIN, and the real hostnames are the `.net` ones above. It also gives the
+> oversized response as 2484 bytes where every measurement here is 2176,
+> including with DNSSEC-OK set. Neither changes the mechanism or the fix.
+
+[thread]: https://community.cloudflare.com/t/19-rows-of-txt-for-zoho-dot-com-instead-of-25/957207 Until then, any resolver advertising a buffer smaller than 2176 bytes
 may serve an incomplete RRset for `zoho.com`, and dropping the SPF record from
 it is a live deliverability problem.
 

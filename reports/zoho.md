@@ -98,10 +98,19 @@ where RFC 1035 caps UDP at 512 bytes, ns11.zns-53.com still returns 2165 bytes.
 
 ## The fix
 
-ns11, ns21, ns31 and ns41.zns-53.com|net need to set TC when a response exceeds
-the requester's advertised EDNS payload size, over both IPv4 and IPv6. This is
-usually a configuration option in the authoritative server software rather than
-a code change.
+These four need to set TC when a response exceeds the requester's advertised
+EDNS payload size, over both IPv4 and IPv6:
+
+    ns11.zns-53.com
+    ns21.zns-53.net
+    ns31.zns-53.com
+    ns41.zns-53.net
+
+(Note the two .net hostnames. The Cloudflare forum thread lists all four as
+.com; ns21.zns-53.com and ns41.zns-53.com do not exist.)
+
+This is usually a configuration option in the authoritative server software
+rather than a code change.
 
 Reducing the zoho.com TXT RRset below about 1232 bytes would also avoid the
 symptom today, but it treats the symptom. The nameservers would stay
