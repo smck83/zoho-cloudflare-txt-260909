@@ -70,6 +70,17 @@ jobs:
           echo "ip=$IP" >> "$GITHUB_OUTPUT"
           echo "Runner public address: $IP"
 
+      # The cause, not the symptom. Recorded first and once, because it is the
+      # line that will change on the day Zoho fixes the nameservers, and having
+      # it dated in results/ is how anyone will know when that was. Cheap: eight
+      # nameservers, two protocols, one query each.
+      - name: Check the nameservers
+        id: edns
+        run: |
+          set +e
+          python probe.py --edns zoho.com | tee /tmp/edns.txt
+          echo "offenders=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Probe across the hour
         id: probe
         run: |
@@ -105,6 +116,8 @@ jobs:
             echo "# runner: github-actions ubuntu-latest, public address ${{ steps.where.outputs.ip }}"
             echo "# run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
+            cat /tmp/edns.txt
+            echo
             cat /tmp/probe.txt
           } > "results/${STAMP}.txt"
           cp "results/${STAMP}.txt" results/latest.txt
@@ -115,6 +128,18 @@ jobs:
             echo "### Probe from GitHub Actions"
             echo
             echo "Runner public address \`${{ steps.where.outputs.ip }}\`."
+            echo
+            if [ "${{ steps.edns.outputs.offenders }}" = "1" ]; then
+              echo "**Nameservers still ignoring the advertised EDNS buffer.**"
+            else
+              echo "**All zoho.com nameservers respected the advertised buffer this run.**"
+              echo "If that holds, the effect below should stop."
+            fi
+            echo
+            echo '```'
+            cat /tmp/edns.txt
+            echo '```'
+            echo
             if [ "${{ steps.probe.outputs.disagreed }}" = "1" ]; then
               echo "**Resolvers disagreed in at least one round.**"
             else
