@@ -98,8 +98,8 @@ what the original test should have done.
 
 ## Credit
 
-Diagnosed by Max Worsley of Cloudflare, who identified the four nameservers and
-the mechanism from the community thread. His reply named IPv6 specifically;
+Diagnosed by Max, a Cloudflare engineer, who identified the four nameservers
+and the mechanism from the community thread. His reply named IPv6 specifically;
 independent testing shows the same behaviour over IPv4, so the fix is not
 protocol-specific.
 

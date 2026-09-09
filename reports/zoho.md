@@ -87,5 +87,5 @@ takes a little weight out of the RRset.
 
 ## Credit
 
-The nameservers and the mechanism were identified by Max Worsley at Cloudflare,
-from a report we raised on their community forum.
+The nameservers and the mechanism were identified by Max, a Cloudflare
+engineer, from a report we raised on their community forum.

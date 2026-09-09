@@ -1,7 +1,7 @@
 # Report: Cloudflare (1.1.1.1) — RESOLVED
 
-**Outcome: not a Cloudflare fault.** Max Worsley of the Cloudflare team
-identified the cause within a day: four of zoho.com's own nameservers ignore
+**Outcome: not a Cloudflare fault.** Max, a Cloudflare engineer, identified the
+cause within a day: four of zoho.com's own nameservers ignore
 the EDNS buffer size and never set TC, so 1.1.1.1 receives an oversized
 datagram and truncates it. See [zoho.md](zoho.md), which is the report that
 now matters, and the repository README for the confirmed mechanism.
