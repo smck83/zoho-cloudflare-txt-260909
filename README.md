@@ -164,6 +164,19 @@ Actions as a second, independently verifiable location.
 Runs from anywhere else are welcome — `probe.py` prints `id.server`, so
 results can be compared node by node rather than only country by country.
 
+## Reports
+
+Drafts for the two parties are in [`reports/`](reports/). They are
+deliberately different documents: Cloudflare needs the resolver behaviour and
+the eliminations and does not care about SPF, while Zoho needs the
+deliverability impact plus a second, unrelated issue of their own.
+
+- [reports/cloudflare.md](reports/cloudflare.md)
+- [reports/zoho.md](reports/zoho.md)
+
+Both are written to survive being pasted into a plain support form, so they
+use no Markdown that matters.
+
 ## For the domain owner
 
 Independent of the above, the two space-prefixed TXT records look like
