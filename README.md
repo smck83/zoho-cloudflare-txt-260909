@@ -4,9 +4,10 @@
 publishes. The SPF record is among the six omitted, so a receiver using that
 resolver sees **no SPF policy** for the domain.
 
-The same query to `8.8.8.8` and `9.9.9.9`, to all eight of the domain's
-authoritative servers, and to Cloudflare's own `dfw13` node in Dallas, returns
-the complete set every time. The nodes serving the short answer are in Sydney.
+The same query to `8.8.8.8` and `9.9.9.9`, and to all eight of the domain's
+authoritative servers, returns the complete set every time. Some Cloudflare
+nodes are also unaffected, which is what makes this specific: it is a property
+of particular nodes, and it spans regions.
 
 **Live, continuously sampling:** <https://zoho-cloudflare-prod.mck.la>
 
@@ -50,34 +51,42 @@ served the identical complete answer in all 20 between them.
 An earlier 20-sample run from a different host on the same network gave 15 of
 20. The live page carries the current figure.
 
-### It is node-local, and it is not one machine
+### It is node-local, and it spans regions
 
-From `id.server` (CHAOS TXT):
+From `id.server` (CHAOS TXT). Sydney figures are from a fixed host there; the
+rest are from GitHub Actions runners, whose logs are public.
 
-| node | location | samples | missing SPF |
+| node | location | complete | incomplete |
 | --- | --- | --- | --- |
-| syd01 | Sydney | 4 | 4 |
-| syd06 | Sydney | 1 | 1 |
-| syd07 | Sydney | 3 | **2** |
-| syd08 | Sydney | 3 | 3 |
-| **dfw13** | **Dallas** | **8** | **0** |
+| syd01 | Sydney | 0 | 4 |
+| syd06 | Sydney | 0 | 1 |
+| syd08 | Sydney | 0 | 3 |
+| **syd07** | Sydney | **1** | **2** |
+| **iad07** | Washington DC | **1** | **11** |
+| dfw13 | Dallas | 8 | 0 |
+| sjc07 | San Jose | 8 | 0 |
 
-Two findings sit in that table.
+Two findings:
 
-**Four Sydney nodes serve the incomplete answer, and `syd07` served both a
-complete and an incomplete one.** So it is neither a single bad machine nor one
-stale cache entry that will simply expire.
+**Some nodes serve the incomplete answer and some do not, across regions.**
+`iad07` in Washington DC fails at much the same rate as the Sydney nodes, while
+`dfw13` and `sjc07` have never returned anything but the complete RRset. So this
+is a property of particular nodes rather than of a region or of a route.
 
-**Dallas is unaffected.** A GitHub Actions runner in Azure `dfw13` got the
-complete 25-record RRset in 8 of 8 samples, on all three resolvers, in the same
-run that Sydney was failing. The
-[workflow](.github/workflows/probe.yml) repeats this every two hours and commits
-the output to [`results/`](results/), so this half of the evidence is public,
-timestamped, and independent of my network.
+**Two nodes served both answers.** `syd07` and `iad07` each returned a complete
+and an incomplete RRset at different times. That rules out a single bad machine
+and rules out one stale cache entry that will expire on its own: whatever holds
+the short answer is reachable behind the same node identity as whatever holds
+the full one.
 
-That narrows it considerably: this is not "Cloudflare returns the wrong answer",
-it is a set of nodes in one region disagreeing with the rest of the anycast
-network about the contents of one RRset.
+> An earlier revision of this document said Dallas was unaffected and concluded
+> the fault was confined to Sydney. That was drawn from a single eight-sample
+> run before `iad07` had been seen. It was wrong, and the table above replaces
+> it. Repeated sampling is the whole reason the workflow exists.
+
+The [workflow](.github/workflows/probe.yml) samples the subject twelve times
+across each hourly run and commits the output to [`results/`](results/), so the
+node column keeps filling in from locations that are not mine.
 
 ### The six records that go missing
 
@@ -102,7 +111,7 @@ of the five domains tested. Every larger one is served consistently:
 | wework.com | 58 | **3701 B** | 1 |
 
 `wework.com` is 2.3× the size of the answer that fails and is served
-identically every time.
+identically every time, from every node tested.
 
 **Delegation.** The NS set at the `.com` registry is identical to the NS set in
 the zone. No stale or third-party delegation.
@@ -125,8 +134,12 @@ buffer sizes, they set `TC` correctly rather than dropping records to fit:
 
 **Interception on the path.** Cloudflare's DoH endpoint
 (`https://cloudflare-dns.com/dns-query`) returns the same 19-record answer from
-this vantage point, so the short answer is not produced by something on the
-wire. `id.server` answers with a Cloudflare node name.
+Sydney, so the short answer is not produced on the wire. `id.server` answers
+with a Cloudflare node name. The Actions runs reproduce it from an unrelated
+network entirely.
+
+**A single location, or a single network.** `iad07` and the Sydney nodes have
+nothing in common but the resolver.
 
 ## Correlation, not a claimed cause
 
@@ -156,10 +169,10 @@ changed, which is what makes it hard to attribute to anything.
 
 ## Vantage point
 
-The measurements in the tables above are from Sydney, Australia. Queries from
-other regions have returned the complete RRset, so this may well be limited to
-particular nodes; [`results/`](results/) carries scheduled runs from GitHub
-Actions as a second, independently verifiable location.
+Measurements come from a fixed host in Sydney and from GitHub Actions runners,
+which have reached nodes in Washington DC, Dallas and San Jose. Both affected
+and unaffected nodes have been seen in each set, so the split is by node
+rather than by location.
 
 Runs from anywhere else are welcome — `probe.py` prints `id.server`, so
 results can be compared node by node rather than only country by country.

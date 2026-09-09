@@ -10,30 +10,34 @@ Formatted so it stays readable pasted into a plain textarea.
 
 ---
 
-**Subject:** zoho.com SPF record not visible to Cloudflare 1.1.1.1 in APAC, and
-two malformed TXT records
+**Subject:** zoho.com SPF record not visible to some Cloudflare 1.1.1.1 nodes,
+and two malformed TXT records
 
 I have been measuring TXT records across public resolvers and found two things
 affecting zoho.com. They are independent of each other.
 
-## 1. A major resolver cannot see your SPF record from Asia-Pacific
+## 1. A major resolver cannot see your SPF record from some of its nodes
 
-zoho.com publishes 25 TXT records. Cloudflare's public resolver (1.1.1.1) at its
-Sydney nodes intermittently returns only 19 of them, and the six it drops
-include your SPF record:
+zoho.com publishes 25 TXT records. Cloudflare's public resolver (1.1.1.1)
+intermittently returns only 19 of them from several of its nodes, and the six
+it drops include your SPF record:
 
     v=spf1 include:spf.zoho.com include:zcsend.net include:spf.zohomail.com include:popspf.zohomail.com -all
 
-The practical effect is that a receiving mail server using 1.1.1.1 from that
-region sees SPF "none" for zoho.com and cannot evaluate SPF for your mail.
+The practical effect is that a receiving mail server using 1.1.1.1, if it lands
+on one of the affected nodes, sees SPF "none" for zoho.com and cannot evaluate SPF for your mail.
 Because it is intermittent, the same check can pass and fail minutes apart,
 which makes it hard for anyone to attribute to a cause.
 
 Measured from Sydney over about an hour, Cloudflare returned the incomplete
-answer in 9 of 10 samples. Google (8.8.8.8) and Quad9 (9.9.9.9) returned the
-complete set every time, as did all eight of your authoritative servers. A
-GitHub Actions runner in Dallas also saw the complete set, so this appears
-limited to particular Cloudflare nodes rather than being global.
+answer in 9 of 10 samples. It is not confined to one region: a node in
+Washington DC returned the incomplete answer in 11 of 12 samples in separate
+testing, while nodes in Dallas and San Jose returned the complete set every
+time. So it affects some Cloudflare nodes and not others, in more than one
+part of the world.
+
+Google (8.8.8.8) and Quad9 (9.9.9.9) returned the complete set every time from
+every location tested, as did all eight of your authoritative servers.
 
 **Your zone is not at fault here, as far as I can measure.** Parent and child NS
 sets match, all eight authoritative servers return the full 25 records, and they
