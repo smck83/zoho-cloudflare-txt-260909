@@ -1,0 +1,39 @@
+# 2026-09-09T095229Z
+# runner: github-actions ubuntu-latest, public address 40.84.216.84
+# run: https://github.com/smck83/zoho-cloudflare-txt-260909/actions/runs/34337075475
+
+# 2026-09-09T09:51:55+00:00
+# host Linux x86_64  fqdn runnervmejwal.ybwjd3tuk2wenjvznezyc2abqa.jx.internal.cloudapp.net
+# Cloudflare  1.1.1.1   id.server=dfw13
+# Google      8.8.8.8   id.server=-
+# Quad9       9.9.9.9   id.server=res721.dfw
+# 8 TCP samples per resolver per domain
+
+zoho.com           Cloudflare  25rec 1601B 16870b05 spf=Y x8
+zoho.com           Google      25rec 1601B 16870b05 spf=Y x8
+zoho.com           Quad9       25rec 1601B 16870b05 spf=Y x8
+                               cross-resolver identical: yes
+
+wiz.io             Cloudflare  41rec 2823B e66f482b spf=Y x8
+wiz.io             Google      41rec 2823B e66f482b spf=Y x8
+wiz.io             Quad9       41rec 2823B e66f482b spf=Y x8
+                               cross-resolver identical: yes
+
+crowdstrike.com    Cloudflare  48rec 2752B 9309e31b spf=Y x8
+crowdstrike.com    Google      48rec 2752B 9309e31b spf=Y x8
+crowdstrike.com    Quad9       48rec 2752B 9309e31b spf=Y x8
+                               cross-resolver identical: yes
+
+uber.com           Cloudflare  42rec 2693B 418f2c18 spf=Y x8
+uber.com           Google      42rec 2693B 418f2c18 spf=Y x8
+uber.com           Quad9       42rec 2693B 418f2c18 spf=Y x8
+                               cross-resolver identical: yes
+
+wework.com         Cloudflare  58rec 3701B 3befb0a1 spf=Y x8
+wework.com         Google      58rec 3701B 3befb0a1 spf=Y x8
+wework.com         Quad9       58rec 3701B 3befb0a1 spf=Y x8
+                               cross-resolver identical: yes
+
+summary
+  unstable (one resolver, differing answers): none
+  resolvers disagree:                         none
