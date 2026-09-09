@@ -1,0 +1,107 @@
+name: probe
+
+# A second vantage point, and one nobody has to take on trust.
+#
+# Every measurement in the README is from a single location in Sydney, which is
+# the first thing anyone reading a resolver bug report will want to discount.
+# GitHub's runners sit in Azure datacentres a long way from there, and the logs
+# of every run are public, so this is evidence that does not depend on my
+# network or my server being believed.
+#
+# It is equally useful if it does NOT reproduce here. That localises the fault
+# rather than weakening the report, which is why the job stays green either way
+# and puts the finding in the summary instead of the exit code. A permanently
+# red badge would say "this repo is broken", not "this resolver is".
+
+on:
+  schedule:
+    # Every two hours. GitHub delays scheduled runs under load, so treat the
+    # timestamps in results/ as when it ran rather than when it was asked to.
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Samples per resolver per domain"
+        default: "8"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install --quiet dnspython
+
+      - name: Where is this runner
+        id: where
+        run: |
+          # The Cloudflare node that answers is the datum that matters, and
+          # probe.py records it per resolver. The public address is here only
+          # so a reader can see this is not the same network as the README's.
+          IP=$(curl -fsS --max-time 10 https://api.ipify.org || echo unknown)
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+          echo "Runner public address: $IP"
+
+      - name: Probe
+        id: probe
+        run: |
+          set +e
+          python probe.py --samples "${{ github.event.inputs.samples || '8' }}" \
+            | tee /tmp/probe.txt
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Record
+        run: |
+          mkdir -p results
+          STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
+          {
+            echo "# ${STAMP}"
+            echo "# runner: github-actions ubuntu-latest, public address ${{ steps.where.outputs.ip }}"
+            echo "# run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            cat /tmp/probe.txt
+          } > "results/${STAMP}.txt"
+          cp "results/${STAMP}.txt" results/latest.txt
+
+      - name: Summary
+        run: |
+          {
+            echo "### Probe from GitHub Actions"
+            echo
+            echo "Runner public address \`${{ steps.where.outputs.ip }}\`."
+            if [ "${{ steps.probe.outputs.exit }}" = "1" ]; then
+              echo "**Resolvers disagreed on at least one domain.**"
+            else
+              echo "All resolvers agreed on every domain in this run."
+            fi
+            echo
+            echo '```'
+            cat /tmp/probe.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "probe: $(date -u +%Y-%m-%dT%H:%M:%SZ) from GitHub Actions"
+            # Another run may have landed while this one was probing.
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
+          fi

@@ -141,10 +141,13 @@ changed, which is what makes it hard to attribute to anything.
 
 ## Vantage point
 
-All measurements here are from Sydney, Australia. Queries from other regions
-have returned the complete RRset, so this may be limited to particular nodes.
-Runs from elsewhere are welcome — `probe.py` prints `id.server` so results can
-be compared directly.
+The measurements in the tables above are from Sydney, Australia. Queries from
+other regions have returned the complete RRset, so this may well be limited to
+particular nodes; [`results/`](results/) carries scheduled runs from GitHub
+Actions as a second, independently verifiable location.
+
+Runs from anywhere else are welcome — `probe.py` prints `id.server`, so
+results can be compared node by node rather than only country by country.
 
 ## For the domain owner
 
