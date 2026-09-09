@@ -12,17 +12,32 @@ name: probe
 # rather than weakening the report, which is why the job stays green either way
 # and puts the finding in the summary instead of the exit code. A permanently
 # red badge would say "this repo is broken", not "this resolver is".
+#
+# Sampling is spread across the run rather than fired in a burst. The behaviour
+# being documented is intermittent, so twelve rounds an hour apart-ish says far
+# more than one burst of the same number of queries. Doing it inside a single
+# job also avoids the obvious alternative of having the workflow re-trigger
+# itself: GITHUB_TOKEN cannot start another workflow run by design, so that
+# needs a PAT, and one failed run then breaks the chain with nothing to restart
+# it. A job can run for six hours; this uses one of them.
 
 on:
   schedule:
-    # Every two hours. GitHub delays scheduled runs under load, so treat the
-    # timestamps in results/ as when it ran rather than when it was asked to.
-    - cron: "17 */2 * * *"
+    # Hourly. Each run then samples across ~55 minutes, so coverage is close to
+    # continuous without depending on the scheduler being punctual, which it is
+    # not: GitHub delays scheduled runs under load and sometimes drops them.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
+      rounds:
+        description: "Sampling rounds spread across the run"
+        default: "12"
+      gap:
+        description: "Seconds between rounds"
+        default: "270"
       samples:
-        description: "Samples per resolver per domain"
-        default: "8"
+        description: "Samples per resolver per domain, per round"
+        default: "3"
 
 permissions:
   contents: write
@@ -34,6 +49,7 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -54,13 +70,31 @@ jobs:
           echo "ip=$IP" >> "$GITHUB_OUTPUT"
           echo "Runner public address: $IP"
 
-      - name: Probe
+      - name: Probe across the hour
         id: probe
         run: |
+          ROUNDS="${{ github.event.inputs.rounds || '12' }}"
+          GAP="${{ github.event.inputs.gap || '270' }}"
+          SAMPLES="${{ github.event.inputs.samples || '3' }}"
+          DISAGREED=0
+          : > /tmp/probe.txt
+          for i in $(seq 1 "$ROUNDS"); do
+            echo "=== round $i/$ROUNDS  $(date -u +%H:%M:%SZ) ===" | tee -a /tmp/probe.txt
+            set +e
+            # Only the subject each round. The controls answer a question that
+            # does not change minute to minute, so they run once at the end.
+            python probe.py --samples "$SAMPLES" zoho.com | tee -a /tmp/probe.txt
+            [ "${PIPESTATUS[0]}" = "1" ] && DISAGREED=1
+            set -e
+            [ "$i" -lt "$ROUNDS" ] && sleep "$GAP"
+          done
+          echo "=== controls  $(date -u +%H:%M:%SZ) ===" | tee -a /tmp/probe.txt
           set +e
-          python probe.py --samples "${{ github.event.inputs.samples || '8' }}" \
-            | tee /tmp/probe.txt
-          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          python probe.py --samples "$SAMPLES" wiz.io crowdstrike.com uber.com wework.com \
+            | tee -a /tmp/probe.txt
+          [ "${PIPESTATUS[0]}" = "1" ] && DISAGREED=1
+          set -e
+          echo "disagreed=$DISAGREED" >> "$GITHUB_OUTPUT"
 
       - name: Record
         run: |
@@ -81,14 +115,14 @@ jobs:
             echo "### Probe from GitHub Actions"
             echo
             echo "Runner public address \`${{ steps.where.outputs.ip }}\`."
-            if [ "${{ steps.probe.outputs.exit }}" = "1" ]; then
-              echo "**Resolvers disagreed on at least one domain.**"
+            if [ "${{ steps.probe.outputs.disagreed }}" = "1" ]; then
+              echo "**Resolvers disagreed in at least one round.**"
             else
-              echo "All resolvers agreed on every domain in this run."
+              echo "All resolvers agreed in every round of this run."
             fi
             echo
             echo '```'
-            cat /tmp/probe.txt
+            tail -c 60000 /tmp/probe.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
