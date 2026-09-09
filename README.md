@@ -96,6 +96,25 @@ and it was the step that mattered.
 `probe.py --edns` now checks every nameserver, over both protocols, which is
 what the original test should have done.
 
+## What narrows it further
+
+**The fault line is the platform boundary.** Over CHAOS `version.bind`, the four
+compliant nameservers all answer `UltraDNS Nameserver` — including
+`ns1.zohocorp.com`, despite the name. The four that misbehave refuse every
+identification query, which is ordinary hardening rather than a fault, but it
+places the boundary exactly between Zoho's own `zns-53` infrastructure and the
+UltraDNS platform. More likely one shared setting or build than four separately
+broken hosts.
+
+**TCP/53 already works on all eight.** A server setting `TC` is directing the
+client to retry over TCP, so it would matter a great deal if these four did not
+answer there. They do — all eight return the complete 25-record RRset over TCP.
+The retry destination is already correct; only the signal telling clients to use
+it is missing, which makes enabling truncation both safe and sufficient.
+
+Over TCP the answer measures 2165 bytes against 2176 over UDP; the difference is
+the EDNS `OPT` pseudo-record the UDP queries carry.
+
 ## Credit
 
 Diagnosed by Max, a Cloudflare engineer, who identified the four nameservers

@@ -96,6 +96,32 @@ The first returns the full 2176-byte answer with TC unset. The second returns
 The four do not truncate at any advertised size. Asked with no EDNS at all,
 where RFC 1035 caps UDP at 512 bytes, ns11.zns-53.com still returns 2165 bytes.
 
+## Two things that narrow the fix
+
+**The split follows the platform, not the individual hosts.** Asked for
+version.bind over CHAOS, the four compliant nameservers all identify as
+"UltraDNS Nameserver" -- including ns1.zohocorp.com, despite the name. The four
+that misbehave refuse every identification query, which is normal hardening and
+not a fault in itself, but it means the fault line is exactly the boundary
+between your own zns-53 infrastructure and the UltraDNS platform. This is
+unlikely to be four separately misconfigured hosts; it is far more likely to be
+one setting, or one software version, shared by all four.
+
+**TCP is already working, so enabling truncation is safe and sufficient.** A
+server that sets TC is telling the client to retry over TCP, so it would be a
+real problem if these four did not answer there. They do:
+
+    all eight nameservers    TCP/53 open, 25 records returned, SPF present
+
+Every one of the four serves the complete RRset over TCP today. There is no
+second problem hiding behind the first, and no risk that enabling truncation
+sends clients down a path that does not work. The retry destination is already
+correct; only the signal telling them to use it is missing.
+
+(Over TCP the response measures 2165 bytes against 2176 over UDP. The 11-byte
+difference is the EDNS OPT pseudo-record the UDP queries carry, and nothing to
+do with the fault.)
+
 ## The fix
 
 These four need to set TC when a response exceeds the requester's advertised
