@@ -61,10 +61,10 @@ recommended by DNS Flag Day 2020 and widely adopted since, chosen so replies do
 not get fragmented in transit. Google and Quad9 evidently advertise enough to
 fit 2176, so for them the same broken reply is just a normal answer.
 
-So the four nameservers are not working correctly and failing with Cloudflare.
-They are broken everywhere, and happen to get away with it wherever the asker
-requested a large buffer. The more resolvers adopt the smaller, current
-recommendation, the more often this will bite.
+The distinction matters. These four are not working correctly and failing only
+against Cloudflare. They are non-compliant everywhere, and get away with it
+wherever the asker happened to request a large buffer. As more resolvers adopt
+the smaller, current recommendation, the more often it will bite.
 
 Two further points against waiting it out:
 
