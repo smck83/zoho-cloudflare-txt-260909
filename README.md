@@ -1,196 +1,150 @@
-# Inconsistent TXT RRset for `zoho.com` from Cloudflare's public resolver
+# Four of zoho.com's nameservers ignore the EDNS buffer size
 
-`1.1.1.1` intermittently returns **19 of the 25 TXT records** `zoho.com`
-publishes. The SPF record is among the six omitted, so a receiver using that
-resolver sees **no SPF policy** for the domain.
+**Resolved. The cause is in `zoho.com`'s own DNS, not in Cloudflare's resolver.**
 
-The same query to `8.8.8.8` and `9.9.9.9`, and to all eight of the domain's
-authoritative servers, returns the complete set every time. Some Cloudflare
-nodes are also unaffected, which is what makes this specific: it is a property
-of particular nodes, and it spans regions.
+Four of the eight nameservers for `zoho.com` return a 2176-byte UDP response
+regardless of the EDNS payload size the requester advertised, and never set the
+`TC` flag. RFC 6891 §6.2.5 requires a responder whose answer will not fit the
+advertised buffer to truncate and set `TC`, so the requester knows to retry over
+TCP.
 
-**Live, continuously sampling:** <https://zoho-cloudflare-prod.mck.la>
+`1.1.1.1` advertises 1232 bytes. When it happens to query one of the four, it
+receives an oversized datagram and truncates it internally, which drops the last
+six records of the RRset — including `zoho.com`'s SPF record. A client then sees
+**no SPF policy** for the domain.
 
-That page samples every 60 seconds from a fixed vantage point and shows the
-distribution rather than a single query, because the behaviour alternates.
-`/api/records` on the same host does a live diff of the two answers.
-`/api/summary` returns everything as JSON.
-
-This repository is the method and the reasoning. It is not a claim about the
-cause, which is not visible from outside.
+Which nameserver a resolver picks varies per query, which is why the answer
+alternated and why this was so hard to pin down.
 
 ## Reproduce
 
 ```
 pip install dnspython
-python probe.py
+python probe.py --edns zoho.com
 ```
 
-Every query is **TCP**, so UDP buffer size and truncation are not in play.
-Records are sorted and hashed, so answers are compared by content rather than
-by count: a resolver returning the same number of different records shows as a
-distinct variant rather than as agreement.
-
-`probe.py` prints `id.server` for each resolver, so runs from different regions
-can be compared.
-
-## What is observed
-
-Ten TCP samples per resolver, from Sydney, Australia:
-
-| resolver | records | RDATA | digest | SPF | seen |
-| --- | --- | --- | --- | --- | --- |
-| **Cloudflare** | **19** | **964 B** | `23f4ad6b903f` | **no** | **9** |
-| Cloudflare | 25 | 1601 B | `16870b05d8ef` | yes | 1 |
-| Google | 25 | 1601 B | `16870b05d8ef` | yes | 10 |
-| Quad9 | 25 | 1601 B | `16870b05d8ef` | yes | 10 |
-
-Cloudflare served an incomplete answer in **9 of 10** samples. Google and Quad9
-served the identical complete answer in all 20 between them.
-
-An earlier 20-sample run from a different host on the same network gave 15 of
-20. The live page carries the current figure.
-
-### It is node-local, and it spans regions
-
-From `id.server` (CHAOS TXT). Sydney figures are from a fixed host there; the
-rest are from GitHub Actions runners, whose logs are public.
-
-| node | location | complete | incomplete |
-| --- | --- | --- | --- |
-| syd01 | Sydney | 0 | 4 |
-| syd06 | Sydney | 0 | 1 |
-| syd08 | Sydney | 0 | 3 |
-| **syd07** | Sydney | **1** | **2** |
-| **iad07** | Washington DC | **1** | **11** |
-| dfw13 | Dallas | 8 | 0 |
-| sjc07 | San Jose | 8 | 0 |
-
-Two findings:
-
-**Some nodes serve the incomplete answer and some do not, across regions.**
-`iad07` in Washington DC fails at much the same rate as the Sydney nodes, while
-`dfw13` and `sjc07` have never returned anything but the complete RRset. So this
-is a property of particular nodes rather than of a region or of a route.
-
-**Two nodes served both answers.** `syd07` and `iad07` each returned a complete
-and an incomplete RRset at different times. That rules out a single bad machine
-and rules out one stale cache entry that will expire on its own: whatever holds
-the short answer is reachable behind the same node identity as whatever holds
-the full one.
-
-> An earlier revision of this document said Dallas was unaffected and concluded
-> the fault was confined to Sydney. That was drawn from a single eight-sample
-> run before `iad07` had been seen. It was wrong, and the table above replaces
-> it. Repeated sampling is the whole reason the workflow exists.
-
-The [workflow](.github/workflows/probe.yml) samples the subject twelve times
-across each hourly run and commits the output to [`results/`](results/), so the
-node column keeps filling in from locations that are not mine.
-
-### The six records that go missing
-
 ```
-_9xdko5m9wh9tx7q8vz3vs0eo2y6l239
- _wcrm20bvcnsi6903akx0tvwk6knbzi8
-v=spf1 include:spf.zoho.com include:zcsend.net include:spf.zohomail.com include:popspf.zohomail.com -all
-postman-domain-verification=034222fc…   (3 records, ~135 bytes each)
+nameserver                 proto  TC     bytes   verdict
+ns1.zohocorp.com           IPv4   True      61   correct: TC=1
+ns11.zns-53.com            IPv4   False   2176   *** OVERSIZED, NO TC ***
+ns11.zns-53.com            IPv6   False   2176   *** OVERSIZED, NO TC ***
+ns21.zns-53.net            IPv4   False   2176   *** OVERSIZED, NO TC ***
+ns21.zns-53.net            IPv6   False   2176   *** OVERSIZED, NO TC ***
+ns31.zns-53.com            IPv4   False   2176   *** OVERSIZED, NO TC ***
+ns31.zns-53.com            IPv6   False   2176   *** OVERSIZED, NO TC ***
+ns41.zns-53.net            IPv4   False   2176   *** OVERSIZED, NO TC ***
+ns41.zns-53.net            IPv6   False   2176   *** OVERSIZED, NO TC ***
+pdns90.ultradns.biz        IPv4   True      61   correct: TC=1
+pdns90.ultradns.com        IPv4   True      61   correct: TC=1
+pdns90.ultradns.net        IPv4   True      61   correct: TC=1
 ```
 
-## What has been ruled out
+`python probe.py` still runs the original comparison across resolvers.
 
-**Response size.** `zoho.com`'s complete RRset is **1601 bytes**, the smallest
-of the five domains tested. Every larger one is served consistently:
+## The four never truncate, at any buffer size
 
-| domain | records | RDATA | distinct answers across all three resolvers |
-| --- | --- | --- | --- |
-| **zoho.com** | 25 | **1601 B** | **2** |
-| uber.com | 42 | 2693 B | 1 |
-| crowdstrike.com | 48 | 2752 B | 1 |
-| wiz.io | 41 | 2823 B | 1 |
-| wework.com | 58 | **3701 B** | 1 |
+`ns11.zns-53.com`, asked the same question with different advertised buffers:
 
-`wework.com` is 2.3× the size of the answer that fails and is served
-identically every time, from every node tested.
+| EDNS buffer | TC | response |
+| --- | --- | --- |
+| 512 | no | 2176 B |
+| 1220 | no | 2176 B |
+| 1232 | no | 2176 B |
+| 1400 | no | 2176 B |
+| 2000 | no | 2176 B |
+| 4096 | no | 2176 B |
+| none (classic 512) | no | **2165 B** |
 
-**Delegation.** The NS set at the `.com` registry is identical to the NS set in
-the zone. No stale or third-party delegation.
+The last row is the clearest: with no EDNS at all, the limit is 512 bytes by
+RFC 1035, and it still returns 2165 over UDP. These servers do not truncate.
 
-```
-ns1.zohocorp.com  ns11/21/31/41.zns-53.com|net  pdns90.ultradns.biz|com|net
-parent == child: true
-```
+The four compliant servers return 61 bytes with `TC=1` in every one of those
+cases.
 
-**The authoritative servers.** All eight return 25 records including the SPF
-record.
+## Why it looked like a resolver problem
 
-**Truncation handling at the authority.** Queried directly with varying EDNS
-buffer sizes, they set `TC` correctly rather than dropping records to fit:
+Everything observed from outside was consistent with a broken cache:
 
-| EDNS buffer | TC | records | size |
-| --- | --- | --- | --- |
-| 512 / 1220 / 1232 / 1400 | yes | 1 | 61 B |
-| 4096 | no | 25 | 2176 B |
+- The same resolver returned two different answers minutes apart.
+- Some Cloudflare nodes served the short answer and others the full one.
+- One node served both at different times.
+- Google and Quad9 were always correct.
 
-**Interception on the path.** Cloudflare's DoH endpoint
-(`https://cloudflare-dns.com/dns-query`) returns the same 19-record answer from
-Sydney, so the short answer is not produced on the wire. `id.server` answers
-with a Cloudflare node name. The Actions runs reproduce it from an unrelated
-network entirely.
+All of that follows from nameserver selection. A resolver picks one of the eight
+per query; four are broken, four are not. Google and Quad9 advertise a larger
+buffer, so the oversized response fits and nothing is dropped.
 
-**A single location, or a single network.** `iad07` and the Sydney nodes have
-nothing in common but the resolver.
+## The mistake in this repository's earlier testing
 
-## Correlation, not a claimed cause
+An earlier version of this document listed "truncation handling at the
+authority" as **ruled out**, on the strength of this:
 
-`zoho.com` is the only domain of the five carrying malformed TXT records. Two
-entries begin with a space:
+| EDNS buffer | TC | records |
+| --- | --- | --- |
+| 512 / 1220 / 1232 / 1400 | yes | 1 |
+| 4096 | no | 25 |
+
+That test queried **one nameserver out of eight** — `pdns90.ultradns.com` — and
+happened to pick a compliant one. The conclusion "the authoritative servers set
+TC correctly" was drawn from a sample of one and stated about all eight.
+
+That single unexamined choice is why the actual cause was ruled out on day one
+and the investigation pointed at Cloudflare instead. Everything else in the
+original write-up was carefully checked against controls; this one step was not,
+and it was the step that mattered.
+
+`probe.py --edns` now checks every nameserver, over both protocols, which is
+what the original test should have done.
+
+## Credit
+
+Diagnosed by Max Worsley of Cloudflare, who identified the four nameservers and
+the mechanism from the community thread. His reply named IPv6 specifically;
+independent testing shows the same behaviour over IPv4, so the fix is not
+protocol-specific.
+
+## The fix
+
+For Zoho: `ns11`, `ns21`, `ns31` and `ns41.zns-53.com|net` must set `TC` when a
+response exceeds the requester's advertised EDNS payload size, over both IPv4
+and IPv6. Until then, any resolver advertising a buffer smaller than 2176 bytes
+may serve an incomplete RRset for `zoho.com`, and dropping the SPF record from
+it is a live deliverability problem.
+
+Trimming the TXT RRset below ~1232 bytes would also avoid it, but that treats
+the symptom. Two of the 25 records are malformed and worth removing anyway —
+see below — though that alone will not bring it under the limit.
+
+## Also worth fixing: two malformed TXT records
+
+Independent of the above, two of `zoho.com`'s TXT records begin with a space:
 
 ```
 ' 2nb6vfc9zm9t9f941qhzh8c66z5x6lxp'
 ' _wcrm20bvcnsi6903akx0tvwk6knbzi8'
 ```
 
-None of the four control domains has any, and none of the five uses
-multi-string TXT RRs or empty character-strings, so this is the only structural
-difference in the set.
+Almost certainly copy-paste damage. Any verification service matching an exact
+string will not match these. None of the four control domains tested
+(`wework.com`, `crowdstrike.com`, `uber.com`, `wiz.io`) has anything similar.
 
-It is offered only as something cheap to test. It does not on its own explain
-the behaviour: one of the two space-prefixed records survives in the short
-variant while the other does not, so "drops the malformed records" is not the
-rule.
+## Impact while it stands
 
-## Impact
+A receiving mail server resolving via an affected path sees SPF `none` for
+`zoho.com` and cannot evaluate SPF for mail from that domain. Because it depends
+on which nameserver was picked, the same check passes and fails minutes apart,
+which makes it very hard for anyone downstream to attribute.
 
-A receiver resolving via an affected node sees SPF `none` for `zoho.com` and
-cannot evaluate SPF for mail from that domain. Because the behaviour
-alternates, the same check can pass and fail minutes apart with nothing
-changed, which is what makes it hard to attribute to anything.
+## Live monitoring
 
-## Vantage point
+<https://zoho-cloudflare-prod.mck.la> samples continuously and will show the
+behaviour stopping once the nameservers are fixed.
 
-Measurements come from a fixed host in Sydney and from GitHub Actions runners,
-which have reached nodes in Washington DC, Dallas and San Jose. Both affected
-and unaffected nodes have been seen in each set, so the split is by node
-rather than by location.
-
-Runs from anywhere else are welcome — `probe.py` prints `id.server`, so
-results can be compared node by node rather than only country by country.
+Scheduled runs from GitHub Actions are committed to [`results/`](results/),
+giving a public record from a second location.
 
 ## Reports
 
-Drafts for the two parties are in [`reports/`](reports/). They are
-deliberately different documents: Cloudflare needs the resolver behaviour and
-the eliminations and does not care about SPF, while Zoho needs the
-deliverability impact plus a second, unrelated issue of their own.
-
-- [reports/cloudflare.md](reports/cloudflare.md)
-- [reports/zoho.md](reports/zoho.md)
-
-Both are written to survive being pasted into a plain support form, so they
-use no Markdown that matters.
-
-## For the domain owner
-
-Independent of the above, the two space-prefixed TXT records look like
-copy-paste damage and are worth removing.
+- [reports/zoho.md](reports/zoho.md) — the actionable one
+- [reports/cloudflare.md](reports/cloudflare.md) — kept as filed, with the
+  outcome appended

@@ -1,71 +1,91 @@
 # Report: Zoho
 
-Channel: a Zoho support ticket. There is no GitHub presence for their DNS, and
-this needs to reach whoever owns the zoho.com zone.
-
-Two unrelated issues. The second is small and entirely theirs to fix, so it is
-worth raising even if they take no interest in the first.
+Channel: a Zoho support ticket, and worth also sending to whoever runs the
+zns-53.com nameservers, since that is where the fix has to happen.
 
 Formatted so it stays readable pasted into a plain textarea.
 
 ---
 
-**Subject:** zoho.com SPF record not visible to some Cloudflare 1.1.1.1 nodes,
-and two malformed TXT records
+**Subject:** Four zoho.com nameservers ignore EDNS buffer size, causing SPF
+record loss
 
-I have been measuring TXT records across public resolvers and found two things
-affecting zoho.com. They are independent of each other.
+Four of the eight nameservers for zoho.com return a 2176-byte UDP response
+regardless of the EDNS payload size the requester advertised, and never set the
+TC flag:
 
-## 1. A major resolver cannot see your SPF record from some of its nodes
+    ns11.zns-53.com
+    ns21.zns-53.net
+    ns31.zns-53.com
+    ns41.zns-53.net
 
-zoho.com publishes 25 TXT records. Cloudflare's public resolver (1.1.1.1)
-intermittently returns only 19 of them from several of its nodes, and the six
-it drops include your SPF record:
+RFC 6891 section 6.2.5 requires a responder whose answer will not fit the
+requester's advertised payload size to truncate the response and set TC, so the
+requester knows to retry over TCP. These four never do.
+
+The other four (ns1.zohocorp.com, pdns90.ultradns.biz, .com and .net) behave
+correctly, returning a 61-byte response with TC=1.
+
+## Why this matters
+
+Cloudflare's public resolver advertises a 1232-byte buffer. When it queries one
+of the four, it receives an oversized datagram and truncates it internally,
+which drops the last six records of the TXT RRset. One of those six is your SPF
+record:
 
     v=spf1 include:spf.zoho.com include:zcsend.net include:spf.zohomail.com include:popspf.zohomail.com -all
 
-The practical effect is that a receiving mail server using 1.1.1.1, if it lands
-on one of the affected nodes, sees SPF "none" for zoho.com and cannot evaluate SPF for your mail.
-Because it is intermittent, the same check can pass and fail minutes apart,
-which makes it hard for anyone to attribute to a cause.
+A receiving mail server resolving through that path sees SPF "none" for
+zoho.com and cannot evaluate SPF for your mail.
 
-Measured from Sydney over about an hour, Cloudflare returned the incomplete
-answer in 9 of 10 samples. It is not confined to one region: a node in
-Washington DC returned the incomplete answer in 11 of 12 samples in separate
-testing, while nodes in Dallas and San Jose returned the complete set every
-time. So it affects some Cloudflare nodes and not others, in more than one
-part of the world.
+Because a resolver picks a different nameserver per query, and four of your
+eight are affected, this comes and goes. The same check passes and fails minutes
+apart, which makes it very difficult for anyone downstream to attribute to a
+cause. We spent a day believing it was a resolver fault before Cloudflare
+identified the nameservers.
 
-Google (8.8.8.8) and Quad9 (9.9.9.9) returned the complete set every time from
-every location tested, as did all eight of your authoritative servers.
+## Verify it yourself
 
-**Your zone is not at fault here, as far as I can measure.** Parent and child NS
-sets match, all eight authoritative servers return the full 25 records, and they
-set the TC flag correctly when the answer does not fit a UDP buffer. I have
-reported it to Cloudflare separately.
+    pip install dnspython
+    python probe.py --edns zoho.com
 
-I am raising it with you because it affects deliverability for mail from
-zoho.com in that region, and because you are better placed than I am to press
-Cloudflare on it.
+from https://github.com/smck83/zoho-cloudflare-txt-260909
 
-Full method, measurements and a reproduction script:
-https://github.com/smck83/zoho-cloudflare-txt-260909
+Or directly, with dig:
 
-## 2. Two malformed TXT records on zoho.com
+    dig +bufsize=1232 +ignore TXT zoho.com @ns11.zns-53.com
+    dig +bufsize=1232 +ignore TXT zoho.com @pdns90.ultradns.com
 
-Separately, and regardless of the above, two of your TXT records begin with a
-space character:
+The first returns the full 2176-byte answer with TC unset. The second returns
+61 bytes with TC set, which is the correct behaviour.
+
+The four do not truncate at any advertised size. Asked with no EDNS at all,
+where RFC 1035 caps UDP at 512 bytes, ns11.zns-53.com still returns 2165 bytes.
+
+## The fix
+
+ns11, ns21, ns31 and ns41.zns-53.com|net need to set TC when a response exceeds
+the requester's advertised EDNS payload size, over both IPv4 and IPv6. This is
+usually a configuration option in the authoritative server software rather than
+a code change.
+
+Reducing the zoho.com TXT RRset below about 1232 bytes would also avoid the
+symptom, but it would leave the nameservers non-compliant for any other large
+RRset you publish now or later.
+
+## Separately: two malformed TXT records
+
+Unrelated to the above, two of your TXT records begin with a space character:
 
     " 2nb6vfc9zm9t9f941qhzh8c66z5x6lxp"
     " _wcrm20bvcnsi6903akx0tvwk6knbzi8"
 
 These look like copy-paste damage from whatever verification flow created them.
-A leading space is legal in a TXT record but almost certainly not what was
-intended, and any verification service matching on an exact string will not
-match these.
+A leading space is legal but almost certainly not intended, and any verification
+service matching on an exact string will not match these. Removing them also
+takes a little weight out of the RRset.
 
-For context, I compared zoho.com against four other domains with larger TXT
-record sets (wework.com, crowdstrike.com, uber.com, wiz.io). None of them has a
-record with leading or trailing whitespace; zoho.com is the only one. I am not
-claiming this causes the resolver issue above, and I do not think it does, but
-it is worth cleaning up on its own merits.
+## Credit
+
+The nameservers and the mechanism were identified by Max Worsley at Cloudflare,
+from a report we raised on their community forum.

@@ -1,4 +1,24 @@
-# Report: Cloudflare (1.1.1.1)
+# Report: Cloudflare (1.1.1.1) — RESOLVED
+
+**Outcome: not a Cloudflare fault.** Max Worsley of the Cloudflare team
+identified the cause within a day: four of zoho.com's own nameservers ignore
+the EDNS buffer size and never set TC, so 1.1.1.1 receives an oversized
+datagram and truncates it. See [zoho.md](zoho.md), which is the report that
+now matters, and the repository README for the confirmed mechanism.
+
+One correction to the reply for the record: it named IPv6 specifically, and
+independent testing shows the same behaviour over IPv4. The fix is not
+protocol-specific.
+
+Kept below as filed, because the reasoning and the eliminations are the
+reason it got a useful answer — including the one elimination that was
+wrong. The original testing checked truncation behaviour on a single
+nameserver out of eight, picked a compliant one, and ruled out the actual
+cause on that basis.
+
+---
+
+# As filed
 
 Channel: <https://community.cloudflare.com/> under 1.1.1.1, or a support ticket.
 Cloudflare does not triage resolver behaviour through GitHub, so this repository
