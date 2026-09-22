@@ -22,11 +22,11 @@ name: probe
 # it. A job can run for six hours; this uses one of them.
 
 on:
-  schedule:
+  #schedule:
     # Hourly. Each run then samples across ~55 minutes, so coverage is close to
     # continuous without depending on the scheduler being punctual, which it is
     # not: GitHub delays scheduled runs under load and sometimes drops them.
-    - cron: "17 * * * *"
+   # - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       rounds:
